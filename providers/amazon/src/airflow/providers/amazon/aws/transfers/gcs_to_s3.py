@@ -146,7 +146,7 @@ class GCSToS3Operator(BaseOperator):
                 self.__is_match_glob_supported = False
         except ImportError:  # __version__ was added in 10.1.0, so this means it's < 10.3.0
             self.__is_match_glob_supported = False
-        if not self.__is_match_glob_supported and match_glob:
+        if not self.__is_match_glob_supported and match_glob is not None:
             raise AirflowException(
                 "The 'match_glob' parameter requires 'apache-airflow-providers-google>=10.3.0'."
             )
