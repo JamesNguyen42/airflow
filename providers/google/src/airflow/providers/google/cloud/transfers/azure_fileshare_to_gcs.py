@@ -103,7 +103,6 @@ class AzureFileShareToGCSOperator(BaseOperator):
         self.directory_path = directory_path
         self.directory_name = directory_name
         if self.directory_path is None and self.directory_name is not None:
-            self.directory_path = self.directory_name
             warnings.warn(
                 "Use 'directory_path' instead of 'directory_name'. Planned removal date: October 5, 2026.",
                 AirflowProviderDeprecationWarning,
@@ -139,6 +138,8 @@ class AzureFileShareToGCSOperator(BaseOperator):
             )
 
     def execute(self, context: Context) -> list[str]:
+        if self.directory_path is None and self.directory_name is not None:
+            self.directory_path = self.directory_name
         self._check_inputs()
         azure_fileshare_hook = AzureFileShareHook(
             share_name=self.share_name,

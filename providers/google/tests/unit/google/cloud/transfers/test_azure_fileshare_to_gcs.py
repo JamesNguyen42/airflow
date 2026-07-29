@@ -20,6 +20,7 @@ from unittest import mock
 
 import pytest
 
+from airflow.exceptions import AirflowProviderDeprecationWarning
 from airflow.providers.google.cloud.transfers.azure_fileshare_to_gcs import AzureFileShareToGCSOperator
 
 pytestmark = pytest.mark.filterwarnings("ignore::FutureWarning")
@@ -99,6 +100,37 @@ class TestAzureFileShareToGCSOperator:
             else MOCK_FILES
         )
         assert sorted(expected_files) == sorted(uploaded_files)
+
+    @mock.patch("airflow.providers.google.cloud.transfers.azure_fileshare_to_gcs.AzureFileShareHook")
+    @mock.patch("airflow.providers.google.cloud.transfers.azure_fileshare_to_gcs.GCSHook")
+    def test_execute_resolves_rendered_deprecated_directory_name(
+        self, gcs_mock_hook, azure_fileshare_mock_hook
+    ):
+        with pytest.warns(AirflowProviderDeprecationWarning):
+            operator = AzureFileShareToGCSOperator(
+                task_id=TASK_ID,
+                share_name=AZURE_FILESHARE_SHARE,
+                directory_name="{{ params.directory }}",
+                azure_fileshare_conn_id=AZURE_FILESHARE_CONN_ID,
+                gcp_conn_id=GCS_CONN_ID,
+                dest_gcs=GCS_PATH_PREFIX,
+                google_impersonation_chain=IMPERSONATION_CHAIN,
+                return_gcs_uris=True,
+            )
+        operator.directory_name = AZURE_FILESHARE_DIRECTORY_PATH
+        azure_fileshare_mock_hook.return_value.list_files.return_value = []
+
+        operator.execute(None)
+
+        azure_fileshare_mock_hook.assert_called_once_with(
+            share_name=AZURE_FILESHARE_SHARE,
+            azure_fileshare_conn_id=AZURE_FILESHARE_CONN_ID,
+            directory_path=AZURE_FILESHARE_DIRECTORY_PATH,
+        )
+        gcs_mock_hook.assert_called_once_with(
+            gcp_conn_id=GCS_CONN_ID,
+            impersonation_chain=IMPERSONATION_CHAIN,
+        )
 
     @mock.patch("airflow.providers.google.cloud.transfers.azure_fileshare_to_gcs.AzureFileShareHook")
     @mock.patch("airflow.providers.google.cloud.transfers.azure_fileshare_to_gcs.GCSHook")
