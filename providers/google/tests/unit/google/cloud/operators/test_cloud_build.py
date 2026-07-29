@@ -166,6 +166,19 @@ class TestCloudBuildOperator:
             expected_body = {"steps": [{"name": "ubuntu", "args": ["echo", "Hello {{ params.name }}!"]}]}
             assert expected_body == operator.build
 
+    def test_prepare_template_uses_current_build_field(self, tmp_path):
+        original_build = tmp_path / "original.json"
+        original_build.write_text(json.dumps({"steps": [{"name": "original"}]}))
+        current_build = tmp_path / "current.json"
+        current_build.write_text(json.dumps({"steps": [{"name": "current"}]}))
+
+        operator = CloudBuildCreateBuildOperator(build=str(original_build), task_id="task-id")
+        operator.build = str(current_build)
+
+        operator.prepare_template()
+
+        assert operator.build == {"steps": [{"name": "current"}]}
+
     @mock.patch(CLOUD_BUILD_HOOK_PATH)
     def test_create_build_trigger(self, mock_hook):
         mock_hook.return_value.create_build_trigger.return_value = BuildTrigger()
