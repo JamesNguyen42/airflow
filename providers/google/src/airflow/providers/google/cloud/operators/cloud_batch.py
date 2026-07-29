@@ -78,10 +78,6 @@ class CloudBatchSubmitJobOperator(GoogleCloudBaseOperator):
         self.region = region
         self.job_name = job_name
         self.job = job
-        # Normalize Job protobuf to dict so Airflow's template renderer can descend
-        # into nested fields (e.g. runnable.container.commands). See #37217.
-        if isinstance(job, Job):
-            self.job = Job.to_dict(job)
         self.polling_period_seconds = polling_period_seconds
         self.timeout_seconds = timeout_seconds
         self.gcp_conn_id = gcp_conn_id
@@ -89,7 +85,15 @@ class CloudBatchSubmitJobOperator(GoogleCloudBaseOperator):
         self.deferrable = deferrable
         self.polling_period_seconds = polling_period_seconds
 
+    def prepare_template(self) -> None:
+        # Normalize Job protobuf to dict so Airflow's template renderer can descend
+        # into nested fields (e.g. runnable.container.commands). See #37217.
+        if isinstance(self.job, Job):
+            self.job = Job.to_dict(self.job)
+
     def execute(self, context: Context):
+        # Dag parsing normally calls prepare_template; keep direct operator execution consistent.
+        self.prepare_template()
         hook: CloudBatchHook = CloudBatchHook(self.gcp_conn_id, self.impersonation_chain)
         job = hook.submit_batch_job(
             job_name=self.job_name, job=self.job, region=self.region, project_id=self.project_id

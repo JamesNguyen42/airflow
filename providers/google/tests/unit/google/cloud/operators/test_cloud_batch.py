@@ -119,6 +119,21 @@ class TestCloudBatchSubmitJobOperatorTemplating:
     def test_template_fields_includes_job(self):
         assert "job" in CloudBatchSubmitJobOperator.template_fields
 
+    def test_protobuf_job_is_normalized_during_template_preparation(self):
+        operator = CloudBatchSubmitJobOperator(
+            task_id=TASK_ID,
+            project_id=PROJECT_ID,
+            region=REGION,
+            job_name=JOB_NAME,
+            job=JOB,
+        )
+
+        assert isinstance(operator.job, batch_v1.Job)
+
+        operator.prepare_template()
+
+        assert operator.job == batch_v1.Job.to_dict(JOB)
+
     @pytest.mark.db_test
     @pytest.mark.parametrize(
         "job_input_factory",
