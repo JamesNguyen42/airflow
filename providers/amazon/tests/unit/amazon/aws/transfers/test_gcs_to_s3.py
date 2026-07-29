@@ -25,6 +25,7 @@ from moto import mock_aws
 
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.providers.amazon.aws.transfers.gcs_to_s3 import GCSToS3Operator
+from airflow.providers.common.compat.sdk import AirflowException
 
 TASK_ID = "test-gcs-list-operator"
 GCS_BUCKET = "test-bucket"
@@ -48,6 +49,36 @@ def _create_test_bucket():
 
 @mock_aws
 class TestGCSToS3Operator:
+    @pytest.mark.parametrize(
+        ("google_provider_version", "match_glob", "raises"),
+        [
+            ("10.2.0", None, False),
+            ("10.2.0", "", True),
+            ("10.2.0", "**/*.csv", True),
+            ("10.3.0", "**/*.csv", False),
+        ],
+    )
+    def test_match_glob_requires_supported_google_provider(
+        self, monkeypatch, google_provider_version, match_glob, raises
+    ):
+        monkeypatch.setattr("airflow.providers.google.__version__", google_provider_version)
+        operator_kwargs = {
+            "task_id": TASK_ID,
+            "gcs_bucket": GCS_BUCKET,
+            "dest_s3_key": S3_BUCKET,
+            "match_glob": match_glob,
+        }
+
+        if raises:
+            with pytest.raises(
+                AirflowException,
+                match="The 'match_glob' parameter requires 'apache-airflow-providers-google>=10.3.0'",
+            ):
+                GCSToS3Operator(**operator_kwargs)
+        else:
+            operator = GCSToS3Operator(**operator_kwargs)
+            assert operator.match_glob == match_glob
+
     @mock.patch("airflow.providers.amazon.aws.transfers.gcs_to_s3.GCSHook")
     def test_execute__match_glob(self, mock_hook):
         mock_hook.return_value.list.return_value = MOCK_FILES
