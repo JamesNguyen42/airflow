@@ -18,12 +18,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest import mock
 
 import pytest
 
-from airflow.exceptions import AirflowProviderDeprecationWarning
+from airflow.exceptions import AirflowProviderDeprecationWarning, TaskDeferred
 from airflow.providers.google.cloud.sensors.cloud_composer import (
     CloudComposerDAGRunSensor,
     CloudComposerExternalTaskSensor,
@@ -350,3 +350,83 @@ class TestCloudComposerExternalTaskSensor:
         task._composer_airflow_version = composer_airflow_version
 
         assert not task.poke(context={"logical_date": datetime(2024, 5, 23, 0, 0, 0)})
+
+    def test_templated_task_selector_is_normalized_after_rendering(self):
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_id="{{ task_id }}",
+            allowed_states=["success"],
+        )
+
+        task.render_template_fields({"task_id": TEST_COMPOSER_EXTERNAL_TASK_ID})
+
+        task._validate_and_normalize_external_task_selector()
+        task._validate_and_normalize_external_task_selector()
+
+        assert task.composer_external_task_ids == [TEST_COMPOSER_EXTERNAL_TASK_ID]
+
+    @mock.patch.object(CloudComposerExternalTaskSensor, "_get_composer_airflow_version", return_value=3)
+    def test_deferrable_trigger_uses_normalized_templated_selector(self, _):
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_id="{{ task_id }}",
+            allowed_states=["success"],
+            deferrable=True,
+        )
+        task.render_template_fields({"task_id": TEST_COMPOSER_EXTERNAL_TASK_ID})
+
+        with pytest.raises(TaskDeferred) as deferred:
+            task.execute({"logical_date": datetime(2024, 5, 23, tzinfo=timezone.utc)})
+
+        assert deferred.value.trigger.composer_external_task_ids == [TEST_COMPOSER_EXTERNAL_TASK_ID]
+
+    @pytest.mark.parametrize(
+        ("composer_external_task_id", "composer_external_task_ids", "composer_external_task_group_id"),
+        [
+            (TEST_COMPOSER_EXTERNAL_TASK_ID, [], None),
+            (TEST_COMPOSER_EXTERNAL_TASK_ID, None, TEST_COMPOSER_EXTERNAL_TASK_GROUP_ID),
+            (None, [], TEST_COMPOSER_EXTERNAL_TASK_GROUP_ID),
+        ],
+    )
+    def test_task_selectors_use_provision_checks(
+        self,
+        composer_external_task_id,
+        composer_external_task_ids,
+        composer_external_task_group_id,
+    ):
+        with pytest.raises(ValueError, match="Only one of"):
+            CloudComposerExternalTaskSensor(
+                task_id="task-id",
+                project_id=TEST_PROJECT_ID,
+                region=TEST_REGION,
+                environment_id=TEST_ENVIRONMENT_ID,
+                composer_external_dag_id="test_dag_id",
+                composer_external_task_id=composer_external_task_id,
+                composer_external_task_ids=composer_external_task_ids,
+                composer_external_task_group_id=composer_external_task_group_id,
+                allowed_states=["success"],
+            )
+
+    def test_rendered_task_selector_controls_state_validation(self):
+        task = CloudComposerExternalTaskSensor(
+            task_id="task-id",
+            project_id=TEST_PROJECT_ID,
+            region=TEST_REGION,
+            environment_id=TEST_ENVIRONMENT_ID,
+            composer_external_dag_id="test_dag_id",
+            composer_external_task_id="{{ task_id }}",
+            allowed_states=["up_for_retry"],
+        )
+
+        task.composer_external_task_id = None
+
+        with pytest.raises(ValueError, match="when `composer_external_task_id`"):
+            task._validate_and_normalize_external_task_selector()
